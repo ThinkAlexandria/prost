@@ -66,6 +66,12 @@ pub trait Message: Debug + Send + Sync {
 
     /// Decodes a length-delimited instance of the message from the buffer.
     fn decode_length_delimited<B>(buf: B) -> Result<Self, DecodeError> where B: IntoBuf, Self: Default {
+        let buf = buf.into_buf();
+        let (len, varint_len) = peek_decode_varint(&buf)?;
+        let remaining = buf.remaining();
+        if len > (remaining - varint_len) as u64 {
+            return Err(DecodeError::new("buffer underflow"))
+        }
         let mut message = Self::default();
         message.merge_length_delimited(buf)?;
         Ok(message)
@@ -84,8 +90,8 @@ pub trait Message: Debug + Send + Sync {
 
     /// Decodes a length-delimited instance of the message from buffer, and
     /// merges it into `self`.
-    fn merge_length_delimited<B>(&mut self, buf: B) -> Result<(), DecodeError> where B: IntoBuf, Self: Sized {
-        message::merge(WireType::LengthDelimited, self, &mut buf.into_buf())
+    fn merge_length_delimited<B>(&mut self, mut buf: B) -> Result<(), DecodeError> where B: Buf, Self: Sized {
+        message::merge(WireType::LengthDelimited, self, &mut buf)
     }
 
     /// Clears the message, resetting all fields to their default.
