@@ -224,7 +224,7 @@ where
         let len = decode_varint(buf)?;
         let remaining = buf.remaining();
         if len > remaining as u64 {
-            return Err(DecodeError::new("buffer underflow"))
+            return Err(DecodeError::DecodeLengthDelimitedUnderflow { required: len as usize })
         }
 
         let limit = remaining - len as usize;
