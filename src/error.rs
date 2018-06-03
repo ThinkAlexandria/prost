@@ -7,17 +7,25 @@ use std::io;
 
 /// A Protobuf message decoding error.
 ///
-/// `DecodeError` indicates that the input buffer does not caontain a valid
-/// Protobuf message. The error details should be considered 'best effort': in
-/// general it is not possible to exactly pinpoint why data is malformed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DecodeError {
-    /// A 'best effort' root cause description.
-    description: Cow<'static, str>,
-    /// A stack of (message, field) name pairs, which identify the specific
-    /// message type and field where decoding failed. The stack contains an
-    /// entry per level of nesting.
-    stack: Vec<(&'static str, &'static str)>,
+pub enum DecodeError {
+    /// `DecodeLengthDelimitedUnderflow` indicates that the input buffer is smaller than the
+    /// length indicated by taking the first bytes of the buffer as a varint
+    /// encoded length.
+    DecodeLengthDelimitedUnderflow {
+        required: usize,
+    },
+    /// `DecodeError` indicates that the input buffer does not contain a valid
+    /// Protobuf message. The error details should be considered 'best effort': in
+    /// general it is not possible to exactly pinpoint why data is malformed.
+    DecodeError {
+        /// A 'best effort' root cause description.
+        description: Cow<'static, str>,
+        /// A stack of (message, field) name pairs, which identify the specific
+        /// message type and field where decoding failed. The stack contains an
+        /// entry per level of nesting.
+        stack: Vec<(&'static str, &'static str)>,
+    },
 }
 
 impl DecodeError {
@@ -27,7 +35,7 @@ impl DecodeError {
     /// Meant to be used only by `Message` implementations.
     #[doc(hidden)]
     pub fn new<S>(description: S) -> DecodeError where S: Into<Cow<'static, str>> {
-        DecodeError {
+        DecodeError::DecodeError {
             description: description.into(),
             stack: Vec::new(),
         }
@@ -38,23 +46,36 @@ impl DecodeError {
     /// Meant to be used only by `Message` implementations.
     #[doc(hidden)]
     pub fn push(&mut self, message: &'static str, field: &'static str) {
-        self.stack.push((message, field));
+        match self {
+            DecodeError::DecodeError { ref mut stack, .. } => stack.push((message, field)),
+            _ => (),
+        }
     }
 }
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("failed to decode Protobuf message: ")?;
-        for &(message, field) in &self.stack {
-            write!(f, "{}.{}: ", message, field)?;
+        match self {
+            DecodeError::DecodeError { description, stack } => {
+                f.write_str("failed to decode Protobuf message: ")?;
+                for &(message, field) in stack {
+                    write!(f, "{}.{}: ", message, field)?;
+                }
+                f.write_str(description)
+            },
+            DecodeError::DecodeLengthDelimitedUnderflow { required } => {
+                write!(f, "required buffer size: {}", required)
+            },
         }
-        f.write_str(&self.description)
     }
 }
 
 impl error::Error for DecodeError {
     fn description(&self) -> &str {
-        &self.description
+        match self {
+            DecodeError::DecodeError { description, .. } => description,
+            DecodeError::DecodeLengthDelimitedUnderflow { .. } => "buffer underflow",
+        }
     }
 }
 
